@@ -1,0 +1,23 @@
+{
+  "name": "whatsapp-bot-responder",
+  "version": "1.0.0",
+  "description": "Bot automático que responde mensajes de WhatsApp usando OpenAI GPT",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "keywords": [
+    "whatsapp",
+    "venom-bot",
+    "gpt",
+    "bot"
+  ],
+  "author": "Alberto Hilal",
+  "license": "MIT",
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "mysql2": "^3.9.6",
+    "openai": "^4.36.0",
+    "venom-bot": "^5.1.1"
+  }
+}
