@@ -3,7 +3,7 @@
 module.exports = {
   bienvenida: {
     artista: `Hola, gracias por tu consulta. En Desarrollo y Diseño creamos soluciones digitales personalizadas. Podemos ayudarte a presentar y vender tu trabajo en línea.`,
-    comercio: `Hola. Ofrecemos soluciones digitales para negocios que quieran captar clientes o vender online. ¿En qué rubro trabajás?`,
+    comercio: `Hola. Ofrecemos soluciones digitales para negocios que quieran captar clientes o vender online. ¿En qué rubro trabajás?`
   },
 
   tecnologias_creativas: `Desarrollamos sitios interactivos con tecnologías como p5.js o Processing. Son útiles para animaciones generativas, visualizaciones interactivas o galerías dinámicas.`,
@@ -16,5 +16,5 @@ module.exports = {
 
   confirmacion_agenda: `Listo, reunión agendada. Ese día conversamos sobre tu proyecto y las opciones para empezar a vender online.`,
 
-  cierre_general: `Gracias por tu interés. Si tenés más dudas antes de la reunión, escribime por acá.`
+  cierre_general: `Si tenés más dudas antes de la reunión, escribime por acá. ¡Gracias por tu interés!`
 };

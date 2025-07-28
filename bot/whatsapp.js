@@ -1,8 +1,14 @@
-const { create, Client } = require('venom-bot');
+const { create } = require('venom-bot');
 const { generarRespuesta } = require('../ia/chatgpt');
 const { guardarMensaje, obtenerHistorial } = require('../db/conversaciones');
 const contextoSitio = require('../ia/contextoSitio');
-const { venomConfig } = require('../config/config'); // ✅ Ruta corregida
+const { venomConfig } = require('../config/config');
+const { analizarMensaje } = require('../ia/analizador');
+const respuestas = require('../ia/respuestas');
+
+// 🧠 Variables globales de control
+const ultimoMensaje = {};
+const mensajesLaborales = new Set();
 
 function iniciarBot() {
   create(venomConfig)
@@ -15,10 +21,59 @@ function start(client) {
 
   client.onMessage(async (message) => {
     const telefono = message.from;
-    console.log('📩 Mensaje recibido:', message); // ✅ Logging para depurar
+    const texto = message.body.trim().toLowerCase();
 
+    // 🧱 Filtro 1: mensaje duplicado
+    if (ultimoMensaje[telefono] === texto) {
+      console.log('🔁 Mensaje repetido ignorado:', texto);
+      return;
+    }
+    ultimoMensaje[telefono] = texto;
+
+    // 🧱 Filtro 2: mensaje laboral
+    const palabrasClaveLaboral = [
+      'entrevista', 'trabajo', 'trabajar', 'cv', 'currículum', 'curriculum',
+      'postular', 'edad', 'disponibilidad', 'freelance', 'remoto',
+      'reclutamiento', 'puesto'
+    ];
+    if (palabrasClaveLaboral.some(p => texto.includes(p))) {
+      if (!mensajesLaborales.has(telefono)) {
+        mensajesLaborales.add(telefono);
+        await client.sendText(
+          telefono,
+          'Gracias por tu mensaje. Parece que se trata de una propuesta laboral. Alberto te responderá personalmente a la brevedad.'
+        );
+        console.log('⚠️ Mensaje laboral detectado. Derivado a humano.');
+      } else {
+        console.log('📭 Mensaje laboral ya respondido anteriormente.');
+      }
+      return;
+    }
+
+    // 🧠 Analizar intención básica (sin IA)
+    const clave = analizarMensaje(texto);
+    if (clave) {
+      let respuesta;
+
+      // Respuesta agrupada (ej: bienvenida.artista)
+      if (clave.includes('.')) {
+        const [grupo, tipo] = clave.split('.');
+        respuesta = respuestas[grupo]?.[tipo];
+      } else {
+        respuesta = respuestas[clave];
+      }
+
+      if (respuesta) {
+        await client.sendText(telefono, respuesta);
+        console.log(`💬 Respuesta enviada según analizador: ${clave}`);
+        await guardarMensaje(telefono, 'user', message.body);
+        await guardarMensaje(telefono, 'assistant', respuesta);
+        return;
+      }
+    }
+
+    // 🤖 Si no hay coincidencia, usar ChatGPT
     try {
-      // Obtener historial anterior
       const historial = await obtenerHistorial(telefono, 6);
       const mensajes = [
         { role: 'system', content: contextoSitio },
@@ -26,19 +81,17 @@ function start(client) {
         { role: 'user', content: message.body }
       ];
 
-      // Generar respuesta con ChatGPT
       const respuesta = await generarRespuesta(mensajes);
-
-      // Guardar mensajes
+      await client.sendText(telefono, respuesta);
       await guardarMensaje(telefono, 'user', message.body);
       await guardarMensaje(telefono, 'assistant', respuesta);
-
-      // Enviar respuesta
-      await client.sendText(telefono, respuesta);
-      console.log('✅ Respuesta enviada a', telefono);
+      console.log('✅ Respuesta generada con IA y enviada.');
     } catch (error) {
-      console.error('❌ Error al generar o enviar respuesta:', error);
-      await client.sendText(telefono, 'Lo siento, hubo un problema al generar la respuesta.');
+      console.error('❌ Error al generar o enviar respuesta IA:', error);
+      await client.sendText(
+        telefono,
+        'Lo siento, hubo un problema al generar la respuesta.'
+      );
     }
   });
 }

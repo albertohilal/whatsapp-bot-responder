@@ -7,27 +7,49 @@ function analizarMensaje(texto) {
     return 'bienvenida.artista';
   }
 
-  if (mensaje.includes('tengo un comercio') || mensaje.includes('vendo productos') || mensaje.includes('soy emprendedor')) {
+  if (
+    mensaje.includes('tengo un comercio') ||
+    mensaje.includes('vendo productos') ||
+    mensaje.includes('soy emprendedor')
+  ) {
     return 'bienvenida.comercio';
   }
 
-  if (mensaje.includes('qué tecnología usan') || mensaje.includes('p5.js') || mensaje.includes('processing')) {
+  if (
+    mensaje.includes('qué tecnología usan') ||
+    mensaje.includes('p5.js') ||
+    mensaje.includes('processing')
+  ) {
     return 'tecnologias_creativas';
   }
 
-  if (mensaje.includes('me interesa una página') || mensaje.includes('quiero una web')) {
+  if (
+    mensaje.includes('me interesa una página') ||
+    mensaje.includes('quiero una web') ||
+    mensaje.includes('hacer una web') ||
+    mensaje.includes('necesito una página')
+  ) {
     return 'propuesta_llamada';
   }
 
-  if (mensaje.includes('puedo esta semana') || mensaje.includes('día') && mensaje.includes('hora')) {
+  if (
+    mensaje.includes('puedo esta semana') ||
+    (mensaje.includes('día') && mensaje.includes('hora')) ||
+    mensaje.includes('cuándo podríamos')
+  ) {
     return 'propuesta_horarios';
   }
 
-  if (mensaje.includes('confirmado') || mensaje.includes('agendado') || mensaje.includes('perfecto')) {
+  if (
+    mensaje.includes('confirmado') ||
+    mensaje.includes('agendado') ||
+    mensaje.includes('perfecto') ||
+    mensaje.includes('quedamos así')
+  ) {
     return 'confirmacion_agenda';
   }
 
-  return null; // no coincide con nada → usar ChatGPT
+  return null; // No coincide → pasa a ChatGPT
 }
 
 module.exports = { analizarMensaje };
