@@ -2,13 +2,26 @@ const { create } = require('venom-bot');
 const { generarRespuesta } = require('../ia/chatgpt');
 const { guardarMensaje, obtenerHistorial } = require('../db/conversaciones');
 const contextoSitio = require('../ia/contextoSitio');
-const { venomConfig } = require('../config/config');
 const { analizarMensaje } = require('../ia/analizador');
 const respuestas = require('../ia/respuestas');
 
 // 🧠 Variables globales de control
 const ultimoMensaje = {};
 const mensajesLaborales = new Set();
+
+// 💡 Configuración condicional según entorno
+const isLocal = process.env.HOST_ENV === 'local';
+const venomConfig = {
+  session: 'whatsapp-bot-responder',
+  headless: !isLocal, // headless en producción (Contabo), no en local
+  useChrome: true,
+  executablePath: isLocal ? '/usr/bin/google-chrome-stable' : undefined,
+  browserArgs: [
+    '--no-sandbox',
+    '--disable-setuid-sandbox',
+    '--disable-dev-shm-usage'
+  ]
+};
 
 function iniciarBot() {
   create(venomConfig)
