@@ -31,8 +31,8 @@ function start(client) {
   console.log('🤖 Bot conectado a WhatsApp. Esperando mensajes…');
 
   client.onMessage(async (message) => {
-    const telefonoJid = message.from;                 // JID completo (ej: 54911...@c.us)
-  const telefonoCanon = normalizarTelefonoWhatsApp(telefonoJid);
+    const telefonoJid = message.from; // JID completo (ej: 54911...@c.us)
+    const telefonoCanon = normalizarTelefonoWhatsApp(telefonoJid);
     const texto = (message.body || '').trim();
 
     // Filtro duplicados por teléfono:último texto
@@ -43,7 +43,9 @@ function start(client) {
     ultimoMensaje[telefonoCanon] = texto;
 
     // ⛔ Si RESPONDER_ACTIVO=false, solo registramos y salimos
-    const responderActivo = String(process.env.RESPONDER_ACTIVO || '').toLowerCase() !== 'false' && process.env.RESPONDER_ACTIVO !== '0';
+    const responderActivo =
+      String(process.env.RESPONDER_ACTIVO || '').toLowerCase() !== 'false' &&
+      process.env.RESPONDER_ACTIVO !== '0';
 
     try {
       // Registrar entrante (user)
@@ -68,7 +70,13 @@ function start(client) {
     let respuesta = '';
     try {
       const analisis = analizarMensaje(texto);
-      respuesta = await generarRespuesta({ mensaje: texto, historial, contextoSitio, analisis, respuestas });
+      respuesta = await generarRespuesta({
+        mensaje: texto,
+        historial,
+        contextoSitio,
+        analisis,
+        respuestas,
+      });
     } catch (e) {
       console.error('⚠️ Error generando respuesta:', e.message);
       respuesta = 'Lo siento, hubo un problema al generar la respuesta.';
