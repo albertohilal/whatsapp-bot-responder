@@ -2,13 +2,27 @@
 require('dotenv').config();
 const pool = require('./pool');
 
-/** Normaliza a solo dígitos (ej: "+54 9 11-1234 5678" -> "5491112345678") */
-function normalizarTelefono(t) {
-  if (!t) return '';
-  return String(t).replace(/\D+/g, '');
+/** Normaliza un id de WhatsApp a "DIGITOS@c.us" (descarta grupos) */
+function normalizarTelefonoWhatsApp(t) {
+  if (!t) return null;
+  let s = String(t).trim();
+
+  // Ignorar grupos
+  if (/@g\.us$/i.test(s)) return null;
+
+  // Si viene "54911...@c.us" o "...@s.whatsapp.net"
+  const m = s.match(/^(\+?\d+)\@(c\.us|s\.whatsapp\.net)$/i);
+  if (m) {
+    const digits = m[1].replace(/\D+/g, '');
+    return digits ? `${digits}@c.us` : null; // normalizamos a @c.us
+  }
+
+  // Si viene sólo dígitos (o con +/espacios), agregamos sufijo
+  const digitsOnly = s.replace(/\D+/g, '');
+  return digitsOnly ? `${digitsOnly}@c.us` : null;
 }
 
-/** Reintentos con backoff para límites de conexiones en hosting compartido */
+/** Reintenta en límites de conexión del hosting */
 async function withRetry(fn, { tries = 5, delayMs = 300 } = {}) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
@@ -25,65 +39,55 @@ async function withRetry(fn, { tries = 5, delayMs = 300 } = {}) {
         break;
       }
       await new Promise(r => setTimeout(r, delayMs));
-      delayMs *= 2; // backoff exponencial
+      delayMs *= 2;
     }
   }
   throw lastErr;
 }
 
 /**
- * Guardar mensaje en la conversación.
- *
- * Soporta:
- *  - guardarMensaje(telefono, rol, mensaje)
- *  - guardarMensaje({ telefono, rol, mensaje })
- *  - guardarMensaje({ from, body, fromMe, ... })  // objeto crudo de venom
+ * guardarMensaje
+ *  - (telefono, rol, mensaje)
+ *  - ({ telefono, rol, mensaje })
+ *  - (objeto venom: { from, body/text, fromMe, ... })
  */
 async function guardarMensaje(a, b, c) {
   let telefono, rol, mensaje;
 
   if (typeof a === 'object' && a) {
-    // Compat: objeto estilo venom o formato antiguo
     const m = a;
-    telefono =
-      m.telefono ||
-      m.from ||
-      (m.sender && (m.sender.id || m.sender.pushname || m.sender.formattedName)) ||
-      '';
-    rol = m.rol || (m.fromMe ? 'assistant' : 'user');
-    mensaje = m.mensaje ?? m.body ?? m.text ?? '';
+    telefono = m.telefono ?? m.from ?? m.chatId ?? '';
+    rol      = m.rol ?? (m.fromMe ? 'assistant' : 'user');
+    mensaje  = m.mensaje ?? m.body ?? m.text ?? m.caption ?? '';
   } else {
     telefono = a;
     rol = b;
     mensaje = c;
   }
 
-  // Normalización y sanitización
-  telefono = normalizarTelefono(telefono) || null;
-  rol = (rol === 'assistant' || rol === 'system') ? rol : 'user';
+  telefono = normalizarTelefonoWhatsApp(telefono);
+  if (!telefono) {
+    // Si no hay teléfono válido, no intentamos guardar (evita "Column 'telefono' cannot be null")
+    throw new Error('telefono normalizado inválido (null)');
+  }
+
+  rol     = (rol === 'assistant' || rol === 'system') ? rol : 'user';
   mensaje = (mensaje == null) ? null : String(mensaje);
 
   const sql = `
     INSERT INTO ll_ia_conversaciones (telefono, rol, mensaje, created_at)
     VALUES (?, ?, ?, NOW())
   `;
-  // mysql2 NO acepta undefined en params
-  let params = [telefono, rol, mensaje].map(v => (v === undefined ? null : v));
+  const params = [telefono, rol, mensaje].map(v => (v === undefined ? null : v));
 
-  try {
-    await withRetry(() => pool.execute(sql, params));
-  } catch (err) {
-    console.error('❌ Error guardando mensaje:', err?.message || err, { params });
-  }
+  await withRetry(() => pool.execute(sql, params));
 }
 
-/**
- * Devuelve el historial (últimos N) para un teléfono.
- * @param {string} telefono
- * @param {number} cantidad  (por defecto 6)
- */
+/** Devuelve historial (últimos N) para un teléfono */
 async function obtenerHistorial(telefono, cantidad = 6) {
-  const tel = normalizarTelefono(telefono);
+  const tel = normalizarTelefonoWhatsApp(telefono);
+  if (!tel) return [];
+
   const sql = `
     SELECT rol, mensaje, created_at
     FROM ll_ia_conversaciones
@@ -91,11 +95,10 @@ async function obtenerHistorial(telefono, cantidad = 6) {
     ORDER BY created_at DESC
     LIMIT ?
   `;
-  const params = [tel, Number(cantidad)];
 
+  const params = [tel, Number(cantidad)];
   const [rows] = await withRetry(() => pool.execute(sql, params));
-  // Mostrar en orden cronológico ascendente
-  return rows.reverse();
+  return rows.reverse(); // cronológicamente ascendente
 }
 
-module.exports = { guardarMensaje, obtenerHistorial };
+module.exports = { guardarMensaje, obtenerHistorial, normalizarTelefonoWhatsApp };
