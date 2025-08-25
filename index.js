@@ -1,4 +1,5 @@
+// index.js
 require('dotenv').config();
-const { iniciarBot } = require('./bot/whatsapp');
 
-iniciarBot();
+// Solo requerimos bot/whatsapp.js para que arranque
+require('./bot/whatsapp');

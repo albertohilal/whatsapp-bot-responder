@@ -1,112 +1,161 @@
+// bot/whatsapp.js
+require('dotenv').config();
 const { create } = require('venom-bot');
-const { generarRespuesta } = require('../ia/chatgpt');
+const { generarRespuesta } = require('../ia/chatgpt'); // seguirá sin usarse si RESPONDER_ACTIVO=false
 const { guardarMensaje, obtenerHistorial } = require('../db/conversaciones');
 const contextoSitio = require('../ia/contextoSitio');
 const { analizarMensaje } = require('../ia/analizador');
 const respuestas = require('../ia/respuestas');
 
-// 🧠 Variables globales de control
-const ultimoMensaje = {};
-const mensajesLaborales = new Set();
+// =========================
+// Flags de entorno
+// =========================
+const RESPONDER_ACTIVO = String(process.env.RESPONDER_ACTIVO || 'false').toLowerCase() === 'true';
+const HOST_ENV = (process.env.HOST_ENV || 'server').toLowerCase(); // 'local' | 'server'
+const SESSION_NAME = process.env.SESSION_NAME || 'whatsapp-bot-responder';
 
-// 💡 Configuración condicional según entorno
-const isLocal = process.env.HOST_ENV === 'local';
+// =========================
+// Configuración de Venom
+// =========================
+const isLocal = HOST_ENV === 'local';
 const venomConfig = {
-  session: 'whatsapp-bot-responder',
-  headless: !isLocal, // headless en producción (Contabo), no en local
+  session: SESSION_NAME,
+  headless: !isLocal,            // En server: headless
   useChrome: true,
   executablePath: isLocal ? '/usr/bin/google-chrome-stable' : undefined,
   browserArgs: [
     '--no-sandbox',
     '--disable-setuid-sandbox',
     '--disable-dev-shm-usage'
-  ]
+  ],
+  logQR: true,
 };
 
+// =========================
+// Utilidades
+// =========================
+const ultimoMensaje = {};
+const mensajesLaborales = new Set();
+
+function logEstado() {
+  console.log('========================================');
+  console.log('  🤖 whatsapp-bot-responder');
+  console.log(`  🧭 HOST_ENV: ${HOST_ENV}`);
+  console.log(`  🗂  SESSION_NAME: ${SESSION_NAME}`);
+  console.log(`  💬 Responder automático: ${RESPONDER_ACTIVO ? 'ACTIVADO' : 'DESACTIVADO'}`);
+  console.log('========================================');
+}
+
+async function registrar(message) {
+  try {
+    const base = {
+      id: message.id?._serialized || '',
+      from: message.from || '',
+      to: message.to || '',
+      body: message.body || '',
+      type: message.type || 'chat',
+      timestamp: Number(message.timestamp || Math.floor(Date.now() / 1000)),
+      fromMe: !!message.fromMe,
+      ack: typeof message.ack === 'number' ? message.ack : null,
+      raw: {
+        from: message.from,
+        to: message.to,
+        type: message.type,
+        fromMe: message.fromMe,
+        timestamp: message.timestamp,
+        deviceType: message.deviceType,
+        author: message.author || null, // grupos
+      }
+    };
+
+    // Si ya usás guardarMensaje(custom), adaptá aquí el mapeo:
+    await guardarMensaje({
+      wa_msg_id: base.id,
+      chat_id: base.from || base.to,
+      de_numero: base.from,
+      a_numero: base.to,
+      cuerpo: base.body,
+      tipo: base.type,
+      timestamp: base.timestamp,
+      de_mi: base.fromMe ? 1 : 0,
+      ack: base.ack,
+      raw_json: base.raw
+    });
+  } catch (e) {
+    console.error('❌ Error guardando mensaje:', e?.message || e);
+  }
+}
+
+// =========================
+// Arranque del bot
+// =========================
 function iniciarBot() {
+  logEstado();
   create(venomConfig)
     .then((client) => start(client))
     .catch((err) => console.error('❌ Error al iniciar el bot:', err));
 }
 
 function start(client) {
-  console.log('🤖 Bot conectado a WhatsApp. Esperando mensajes...');
+  console.log('✅ Bot conectado a WhatsApp. Escuchando mensajes…');
 
+  // Entrantes (de otros hacia vos)
   client.onMessage(async (message) => {
-    const telefono = message.from;
-    const texto = message.body.trim().toLowerCase();
+    try {
+      await registrar(message);
 
-    // 🧱 Filtro 1: mensaje duplicado
-    if (ultimoMensaje[telefono] === texto) {
-      console.log('🔁 Mensaje repetido ignorado:', texto);
-      return;
-    }
-    ultimoMensaje[telefono] = texto;
+      // Filtros básicos (opcional)
+      const telefono = message.from;
+      const texto = (message.body || '').trim();
 
-    // 🧱 Filtro 2: mensaje laboral
-    const palabrasClaveLaboral = [
-      'entrevista', 'trabajo', 'trabajar', 'cv', 'currículum', 'curriculum',
-      'postular', 'edad', 'disponibilidad', 'freelance', 'remoto',
-      'reclutamiento', 'puesto'
-    ];
-    if (palabrasClaveLaboral.some(p => texto.includes(p))) {
-      if (!mensajesLaborales.has(telefono)) {
-        mensajesLaborales.add(telefono);
-        await client.sendText(
-          telefono,
-          'Gracias por tu mensaje. Parece que se trata de una propuesta laboral. Alberto te responderá personalmente a la brevedad.'
-        );
-        console.log('⚠️ Mensaje laboral detectado. Derivado a humano.');
-      } else {
-        console.log('📭 Mensaje laboral ya respondido anteriormente.');
-      }
-      return;
-    }
-
-    // 🧠 Analizar intención básica (sin IA)
-    const clave = analizarMensaje(texto);
-    if (clave) {
-      let respuesta;
-
-      // Respuesta agrupada (ej: bienvenida.artista)
-      if (clave.includes('.')) {
-        const [grupo, tipo] = clave.split('.');
-        respuesta = respuestas[grupo]?.[tipo];
-      } else {
-        respuesta = respuestas[clave];
-      }
-
-      if (respuesta) {
-        await client.sendText(telefono, respuesta);
-        console.log(`💬 Respuesta enviada según analizador: ${clave}`);
-        await guardarMensaje(telefono, 'user', message.body);
-        await guardarMensaje(telefono, 'assistant', respuesta);
+      // Evitar loops por duplicado exacto
+      if (ultimoMensaje[telefono] === texto) {
+        console.log('🔁 Mensaje repetido ignorado');
         return;
       }
+      ultimoMensaje[telefono] = texto;
+
+      // Si el responder está desactivado, no respondas:
+      if (!RESPONDER_ACTIVO) {
+        console.log('🤫 RESPONDER_ACTIVO=false → no se responde');
+        return;
+      }
+
+      // --- Respuesta automática (solo si está activo) ---
+      // (Dejamos ejemplo por si querés reactivarlo)
+      /*
+      const historial = await obtenerHistorial(telefono);
+      const analisis = analizarMensaje(texto);
+      const prompt = contextoSitio({ texto, analisis, historial });
+
+      const reply = await generarRespuesta({ texto, prompt, telefono });
+      if (reply && reply.trim()) {
+        await client.sendText(telefono, reply);
+      }
+      */
+    } catch (e) {
+      console.error('❌ Error en onMessage:', e?.message || e);
     }
+  });
 
-    // 🤖 Si no hay coincidencia, usar ChatGPT
+  // Mensajes creados por vos (salientes)
+  client.onAnyMessage(async (message) => {
+    // Venom: onAnyMessage te permite capturar también lo que enviás
     try {
-      const historial = await obtenerHistorial(telefono, 6);
-      const mensajes = [
-        { role: 'system', content: contextoSitio },
-        ...historial.map((msg) => ({ role: msg.rol, content: msg.mensaje })),
-        { role: 'user', content: message.body }
-      ];
+      await registrar(message);
+    } catch (e) {
+      console.error('❌ Error registrando saliente:', e?.message || e);
+    }
+  });
 
-      const respuesta = await generarRespuesta(mensajes);
-      await client.sendText(telefono, respuesta);
-      await guardarMensaje(telefono, 'user', message.body);
-      await guardarMensaje(telefono, 'assistant', respuesta);
-      console.log('✅ Respuesta generada con IA y enviada.');
-    } catch (error) {
-      console.error('❌ Error al generar o enviar respuesta IA:', error);
-      await client.sendText(
-        telefono,
-        'Lo siento, hubo un problema al generar la respuesta.'
-      );
+  // Estado de entrega/lectura (ACK)
+  client.onAck(async (message, ack) => {
+    try {
+      await registrar({ ...message, ack });
+    } catch (e) {
+      console.error('❌ Error actualizando ACK:', e?.message || e);
     }
   });
 }
 
-module.exports = { iniciarBot };
+iniciarBot();
