@@ -9,7 +9,7 @@ const { normalizarTelefonoWhatsApp, mensajesIguales } = require('../utils/normal
 
 // 🧠 Variables globales de control
 const ultimoMensaje = {};
-const mensajesLaborales = new Set();
+const mensajesLaborales = new Set(); // (reservado por si luego filtras fuera de horario)
 
 // 💡 Configuración condicional según entorno
 const isLocal = process.env.HOST_ENV === 'local';
@@ -35,7 +35,7 @@ function start(client) {
     const telefonoCanon = normalizarTelefonoWhatsApp(telefonoJid);
     const texto = (message.body || '').trim();
 
-    // Filtro duplicados por teléfono:último texto
+    // Filtro de duplicados por teléfono:último texto
     if (mensajesIguales(ultimoMensaje[telefonoCanon], texto)) {
       console.log('🔁 Mensaje repetido ignorado');
       return;
@@ -47,11 +47,12 @@ function start(client) {
       String(process.env.RESPONDER_ACTIVO || '').toLowerCase() !== 'false' &&
       process.env.RESPONDER_ACTIVO !== '0';
 
+    // Registrar entrante (user) SIEMPRE, aun con RESPONDER_ACTIVO=false
     try {
-      // Registrar entrante (user)
       await guardarMensaje(telefonoCanon, 'user', texto);
     } catch (e) {
-      // si falla escritura, no cortamos el flujo para que no se caiga el bot
+      console.error('⚠️ Error guardando entrante:', e.message);
+      // no cortamos el flujo
     }
 
     if (!responderActivo) {
@@ -59,14 +60,15 @@ function start(client) {
       return;
     }
 
-    // Historial y generación de respuesta
+    // Traer historial (no crítico)
     let historial = [];
     try {
       historial = await obtenerHistorial(telefonoCanon, 6);
-    } catch (e) {
-      // no es crítico para responder
+    } catch {
+      /* noop */
     }
 
+    // Generar respuesta
     let respuesta = '';
     try {
       const analisis = analizarMensaje(texto);
