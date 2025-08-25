@@ -2,8 +2,13 @@
 require('dotenv').config();
 const { create } = require('venom-bot');
 
-const { generarRespuesta } = require('../ia/chatgpt'); // se llama sólo si RESPONDER_ACTIVO=true
-const { guardarMensaje, obtenerHistorial, normalizarTelefonoWhatsApp } = require('../db/conversaciones');
+// Se usa solo si RESPONDER_ACTIVO=true (por defecto NO respondemos)
+const { generarRespuesta } = require('../ia/chatgpt');
+const {
+  guardarMensaje,
+  obtenerHistorial,
+  normalizarTelefonoWhatsApp,
+} = require('../db/conversaciones');
 const contextoSitio = require('../ia/contextoSitio');
 const { analizarMensaje } = require('../ia/analizador');
 const respuestas = require('../ia/respuestas');
@@ -11,7 +16,8 @@ const respuestas = require('../ia/respuestas');
 // =========================
 // Flags de entorno
 // =========================
-const RESPONDER_ACTIVO = String(process.env.RESPONDER_ACTIVO || 'false').toLowerCase() === 'true';
+const RESPONDER_ACTIVO = String(process.env.RESPONDER_ACTIVO || 'false')
+  .toLowerCase() === 'true';
 const HOST_ENV = (process.env.HOST_ENV || 'server').toLowerCase(); // 'local' | 'server'
 const SESSION_NAME = process.env.SESSION_NAME || 'whatsapp-bot-responder';
 
@@ -21,21 +27,26 @@ const SESSION_NAME = process.env.SESSION_NAME || 'whatsapp-bot-responder';
 const isLocal = HOST_ENV === 'local';
 const venomConfig = {
   session: SESSION_NAME,
-  headless: !isLocal,
+  headless: !isLocal, // en Contabo headless
   useChrome: true,
   executablePath: isLocal ? '/usr/bin/google-chrome-stable' : undefined,
-  browserArgs: [
-    '--no-sandbox',
-    '--disable-setuid-sandbox',
-    '--disable-dev-shm-usage',
-  ],
+  browserArgs: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
   logQR: true,
 };
 
 // =========================
 // Utilidades
 // =========================
-const ultimoMensaje = {}; // para evitar loops por duplicados
+const ultimoMensaje = {}; // para evitar loops por duplicado exacto (solo afecta a respuesta)
+const vistos = new Set(); // para dedupe por id en 1 minuto
+
+function yaVisto(id) {
+  if (!id) return false;
+  if (vistos.has(id)) return true;
+  vistos.add(id);
+  setTimeout(() => vistos.delete(id), 60_000); // 1 minuto
+  return false;
+}
 
 function logEstado() {
   console.log('========================================');
@@ -46,7 +57,7 @@ function logEstado() {
   console.log('========================================');
 }
 
-// Extrae un JID usable. Devuelve null si es grupo o evento no registrable.
+// Extrae un JID usable. Devuelve null si es grupo o no se detecta.
 function extraerTelefono(msg) {
   const candidatos = [
     msg.from,
@@ -54,14 +65,14 @@ function extraerTelefono(msg) {
     msg.sender?.id,
     msg.to,
     msg.contact?.id,
-    msg.author, // en grupos/subeventos
+    msg.author, // en grupos / eventos
   ].filter(Boolean);
 
   for (const v of candidatos) {
     const s = String(v).trim();
     if (/@g\.us$/i.test(s)) return null; // ignoramos grupos
-    if (/@(c\.us|s\.whatsapp\.net)$/i.test(s)) return s;      // JID listo
-    if (/^\+?\d{6,}$/.test(s)) return s;                      // sólo dígitos (+/tel)
+    if (/@(c\.us|s\.whatsapp\.net)$/i.test(s)) return s; // JID listo
+    if (/^\+?\d{6,}$/.test(s)) return s; // solo dígitos (+/tel)
   }
   return null;
 }
@@ -94,17 +105,19 @@ function start(client) {
   // 1) Mensajes entrantes (de otros hacia vos)
   client.onMessage(async (message) => {
     try {
-      // Filtramos eventos que no queremos loguear
       if (!esMensajeRegistrable(message)) return;
 
-      // Extraemos JID y texto
+      const idMsg = message.id?._serialized || '';
+      if (yaVisto(idMsg)) return; // dedupe por id
+
       const jidBruto = extraerTelefono(message);
       if (!jidBruto) return; // sin JID válido, no registramos
+
       const telefono = normalizarTelefonoWhatsApp(jidBruto);
       if (!telefono) return;
 
       const texto = extraerTexto(message);
-      const rol   = message.fromMe ? 'assistant' : 'user';
+      const rol = message.fromMe ? 'assistant' : 'user';
 
       // Guardar SIEMPRE (aunque no respondamos)
       try {
@@ -113,20 +126,20 @@ function start(client) {
         console.error('❌ guardarMensaje falló:', e?.message || e, { telefono, rol, texto });
       }
 
-      // Evitar loops por duplicado exacto (sólo afecta al responder)
+      // Evitar responder 2 veces al mismo texto
       if (ultimoMensaje[telefono] === texto) {
         console.log('🔁 Mensaje repetido ignorado');
         return;
       }
       ultimoMensaje[telefono] = texto;
 
-      // Si responder está off, salimos acá
+      // Si RESPONDER_ACTIVO=false, no respondemos
       if (!RESPONDER_ACTIVO) {
         console.log('🤫 RESPONDER_ACTIVO=false → no se responde');
         return;
       }
 
-      // === Respuesta automática (si activaste RESPONDER_ACTIVO=true) ===
+      // ===== Respuesta automática (opcional) =====
       /*
       const historial = await obtenerHistorial(telefono);
       const analisis  = analizarMensaje(texto);
@@ -135,7 +148,6 @@ function start(client) {
 
       if (reply && reply.trim()) {
         await client.sendText(telefono, reply);
-        // Registrar saliente
         await guardarMensaje(telefono, 'assistant', reply);
       }
       */
@@ -144,28 +156,32 @@ function start(client) {
     }
   });
 
-  // 2) onAnyMessage: captura también mensajes salientes propios
+  // 2) Mensajes salientes (tuyos)
   client.onAnyMessage(async (message) => {
     try {
+      // Solo registramos salientes para evitar duplicar entrantes
+      if (!message.fromMe) return;
       if (!esMensajeRegistrable(message)) return;
+
+      const idMsg = message.id?._serialized || '';
+      if (yaVisto(idMsg)) return;
 
       const jidBruto = extraerTelefono(message);
       if (!jidBruto) return;
+
       const telefono = normalizarTelefonoWhatsApp(jidBruto);
       if (!telefono) return;
 
       const texto = extraerTexto(message);
-      const rol   = message.fromMe ? 'assistant' : 'user';
-
-      await guardarMensaje(telefono, rol, texto || null);
+      await guardarMensaje(telefono, 'assistant', texto || null);
     } catch (e) {
-      console.error('❌ Error registrando onAnyMessage:', e?.message || e);
+      console.error('❌ Error registrando saliente:', e?.message || e);
     }
   });
 
-  // 3) ACK de entrega/lectura: no guarda texto, así que lo ignoramos para DB simple
+  // 3) ACK de entrega/lectura: no guardamos en DB (evita 3er duplicado)
   client.onAck(async (_message, _ack) => {
-    // Si en el futuro querés guardar ACKs, acá podrías extender el esquema/tabla.
+    // Si en el futuro querés guardar ACKs, añadimos columna wa_msg_id y hacemos UPDATE.
   });
 }
 
