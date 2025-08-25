@@ -1,37 +1,36 @@
 // utils/normalizar.js
 
 /**
- * Normaliza un id de WhatsApp al formato "DIGITOS@c.us".
- * - Descarta grupos (@g.us)
- * - Convierte @s.whatsapp.net a @c.us
- * - Si recibe solo dígitos (o con +/espacios), agrega el sufijo @c.us
+ * Normaliza un JID/telefono de WhatsApp a formato canónico:
+ *  - Si viene con sufijo "@c.us" lo preserva, pero normaliza el número
+ *  - Si viene solo número, lo devuelve en E.164 sin guiones/espacios
+ *  - Siempre quita caracteres no numéricos salvo + y @ sufijo
  */
-function normalizarTelefonoWhatsApp(t) {
-  if (!t) return null;
-  let s = String(t).trim();
+function normalizarTelefonoWhatsApp(input) {
+  if (!input) return null;
 
-  // Ignorar grupos
-  if (/@g\.us$/i.test(s)) return null;
+  // split posible JID
+  const [numeroRaw, sufijo] = String(input).trim().split('@');
+  // quitar todo lo que no sea dígito
+  let num = (numeroRaw || '').replace(/\D/g, '');
 
-  // Si viene en formato JID
-  const m = s.match(/^(\+?\d+)\@(c\.us|s\.whatsapp\.net)$/i);
-  if (m) {
-    const digits = m[1].replace(/\D+/g, '');
-    return digits ? `${digits}@c.us` : null; // normalizamos a @c.us
-  }
+  // heurística simple: si no empieza con 54 y es de AR con 11 dígitos que arrancan con 9 (formato WA),
+  // lo dejamos; si tiene 10/11 dígitos sin prefijo país, podrías anteponer 54 según tu caso.
+  // Aquí no imponemos país: solo limpiamos.
+  if (!num) return null;
 
-  // Si viene solo dígitos (o con +/espacios)
-  const digitsOnly = s.replace(/\D+/g, '');
-  return digitsOnly ? `${digitsOnly}@c.us` : null;
+  return sufijo ? `${num}@${sufijo}` : num;
 }
 
-/** Normaliza texto a string “limpio” */
-function normalizarTexto(txt) {
-  if (txt == null) return '';
-  return String(txt).trim();
+/**
+ * Compara mensajes para filtrar duplicados (trim + lower)
+ */
+function mensajesIguales(a, b) {
+  if (!a || !b) return false;
+  return String(a).trim().toLowerCase() === String(b).trim().toLowerCase();
 }
 
 module.exports = {
   normalizarTelefonoWhatsApp,
-  normalizarTexto,
+  mensajesIguales,
 };
