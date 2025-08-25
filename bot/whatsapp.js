@@ -37,8 +37,8 @@ const venomConfig = {
 // =========================
 // Utilidades
 // =========================
-const ultimoMensaje = {}; // para evitar loops por duplicado exacto (solo afecta a respuesta)
-const vistos = new Set(); // para dedupe por id en 1 minuto
+const ultimoMensaje = {}; // evita responder dos veces el mismo texto
+const vistos = new Set(); // dedupe por id en 1 minuto
 
 function yaVisto(id) {
   if (!id) return false;
@@ -90,8 +90,6 @@ function esMensajeRegistrable(msg) {
 }
 
 // =========================
-// Arranque del bot
-// =========================
 function iniciarBot() {
   logEstado();
   create(venomConfig)
@@ -102,7 +100,7 @@ function iniciarBot() {
 function start(client) {
   console.log('✅ Bot conectado a WhatsApp. Escuchando mensajes…');
 
-  // 1) Mensajes entrantes (de otros hacia vos)
+  // 1) Entrantes
   client.onMessage(async (message) => {
     try {
       if (!esMensajeRegistrable(message)) return;
@@ -133,7 +131,6 @@ function start(client) {
       }
       ultimoMensaje[telefono] = texto;
 
-      // Si RESPONDER_ACTIVO=false, no respondemos
       if (!RESPONDER_ACTIVO) {
         console.log('🤫 RESPONDER_ACTIVO=false → no se responde');
         return;
@@ -156,11 +153,10 @@ function start(client) {
     }
   });
 
-  // 2) Mensajes salientes (tuyos)
+  // 2) Salientes tuyos (solo registramos; NO respondemos acá)
   client.onAnyMessage(async (message) => {
     try {
-      // Solo registramos salientes para evitar duplicar entrantes
-      if (!message.fromMe) return;
+      if (!message.fromMe) return;           // evitar duplicar entrantes
       if (!esMensajeRegistrable(message)) return;
 
       const idMsg = message.id?._serialized || '';
@@ -179,9 +175,9 @@ function start(client) {
     }
   });
 
-  // 3) ACK de entrega/lectura: no guardamos en DB (evita 3er duplicado)
+  // 3) ACK de entrega/lectura → no guardamos (evita tercer duplicado)
   client.onAck(async (_message, _ack) => {
-    // Si en el futuro querés guardar ACKs, añadimos columna wa_msg_id y hacemos UPDATE.
+    // Si en el futuro querés guardar ACKs, habrá que persistir wa_msg_id y hacer UPDATE.
   });
 }
 

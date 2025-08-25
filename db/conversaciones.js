@@ -1,6 +1,8 @@
 // db/conversaciones.js
 require('dotenv').config();
 const pool = require('./pool');
+const { normalizarTelefonoWhatsApp, normalizarTexto } = require('../utils/normalizar');
+
 
 /** Normaliza un id de WhatsApp a "DIGITOS@c.us" (descarta grupos) */
 function normalizarTelefonoWhatsApp(t) {
@@ -22,7 +24,7 @@ function normalizarTelefonoWhatsApp(t) {
   return digitsOnly ? `${digitsOnly}@c.us` : null;
 }
 
-/** Reintenta en límites de conexión del hosting */
+/** Reintenta si el host devuelve límite de conexiones */
 async function withRetry(fn, { tries = 5, delayMs = 300 } = {}) {
   let lastErr;
   for (let i = 0; i < tries; i++) {
@@ -67,7 +69,7 @@ async function guardarMensaje(a, b, c) {
 
   telefono = normalizarTelefonoWhatsApp(telefono);
   if (!telefono) {
-    // Si no hay teléfono válido, no intentamos guardar (evita "Column 'telefono' cannot be null")
+    // Evita "Column 'telefono' cannot be null"
     throw new Error('telefono normalizado inválido (null)');
   }
 
