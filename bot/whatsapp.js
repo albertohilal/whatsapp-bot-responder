@@ -1,4 +1,5 @@
 // bot/whatsapp.js
+
 const { create } = require('venom-bot');
 const { generarRespuesta } = require('../ia/chatgpt');
 const { guardarMensaje, obtenerHistorial } = require('../db/conversaciones');
@@ -7,12 +8,12 @@ const { analizarMensaje } = require('../ia/analizador');
 const respuestas = require('../ia/respuestas');
 const { normalizarTelefonoWhatsApp, mensajesIguales } = require('../utils/normalizar');
 
-// 🧠 Variables globales de control
+// ─────────────────────────────────────────────────────────────────────────────
+// Estado en memoria para evitar duplicados por contacto
 const ultimoMensaje = {};
-const mensajesLaborales = new Set(); // (reservado por si luego filtras fuera de horario)
 
-// 💡 Configuración condicional según entorno
-const isLocal = process.env.HOST_ENV === 'local';
+// Config según entorno
+const isLocal = (process.env.HOST_ENV || '').toLowerCase() === 'local';
 const venomConfig = {
   session: process.env.SESSION_NAME || 'whatsapp-bot-responder',
   headless: !isLocal,
@@ -28,39 +29,44 @@ function iniciarBot() {
 }
 
 function start(client) {
-  console.log('🤖 Bot conectado a WhatsApp. Esperando mensajes…');
+  console.log('🤖 Bot conectado a WhatsApp. Escuchando mensajes…');
+  console.log(
+    `ENV ⇒ HOST_ENV=${process.env.HOST_ENV || 'server'} | RESPONDER_ACTIVO=${
+      process.env.RESPONDER_ACTIVO ?? '(undef)'
+    }`
+  );
 
   client.onMessage(async (message) => {
-    const telefonoJid = message.from; // JID completo (ej: 54911...@c.us)
+    const telefonoJid = message.from; // ej: 54911xxxxxxxx@c.us
     const telefonoCanon = normalizarTelefonoWhatsApp(telefonoJid);
     const texto = (message.body || '').trim();
 
-    // Filtro de duplicados por teléfono:último texto
+    // 1) Filtro anti-duplicados por último texto de ese contacto
     if (mensajesIguales(ultimoMensaje[telefonoCanon], texto)) {
       console.log('🔁 Mensaje repetido ignorado');
       return;
     }
     ultimoMensaje[telefonoCanon] = texto;
 
-    // ⛔ Si RESPONDER_ACTIVO=false, solo registramos y salimos
-    const responderActivo =
-      String(process.env.RESPONDER_ACTIVO || '').toLowerCase() !== 'false' &&
-      process.env.RESPONDER_ACTIVO !== '0';
-
-    // Registrar entrante (user) SIEMPRE, aun con RESPONDER_ACTIVO=false
+    // 2) Registrar SIEMPRE el entrante (aunque no vayamos a responder)
     try {
       await guardarMensaje(telefonoCanon, 'user', texto);
     } catch (e) {
       console.error('⚠️ Error guardando entrante:', e.message);
-      // no cortamos el flujo
+      // seguimos el flujo igual
     }
+
+    // 3) Control de bandera RESPONDER_ACTIVO
+    const responderActivo =
+      String(process.env.RESPONDER_ACTIVO || '').toLowerCase() !== 'false' &&
+      process.env.RESPONDER_ACTIVO !== '0';
 
     if (!responderActivo) {
       console.log('🤐 RESPONDER_ACTIVO=false → no se responde');
       return;
     }
 
-    // Traer historial (no crítico)
+    // 4) Historial (no crítico)
     let historial = [];
     try {
       historial = await obtenerHistorial(telefonoCanon, 6);
@@ -68,7 +74,7 @@ function start(client) {
       /* noop */
     }
 
-    // Generar respuesta
+    // 5) Generar respuesta
     let respuesta = '';
     try {
       const analisis = analizarMensaje(texto);
@@ -81,12 +87,14 @@ function start(client) {
       });
     } catch (e) {
       console.error('⚠️ Error generando respuesta:', e.message);
-      respuesta = 'Lo siento, hubo un problema al generar la respuesta.';
+      respuesta = 'Ups, tuve un inconveniente generando la respuesta.';
     }
 
-    // Enviar y registrar respuesta (assistant)
+    // 6) Enviar y registrar la salida
     try {
-      await client.sendText(telefonoJid, respuesta);
+      if (respuesta && respuesta.trim()) {
+        await client.sendText(telefonoJid, respuesta);
+      }
       await guardarMensaje(telefonoCanon, 'assistant', respuesta);
     } catch (e) {
       console.error('⚠️ Error enviando/registrando respuesta:', e.message);
