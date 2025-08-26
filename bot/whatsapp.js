@@ -35,6 +35,7 @@ function start(client) {
   );
 
   client.onMessage(async (message) => {
+    console.log('📥 Mensaje recibido:', message);
     // --- Normalización y saneo ------------------------------------------------
     const telefonoJid = message.from; // ej: 54911xxxxxxxx@c.us
     const telefonoCanon = normalizarTelefonoWhatsApp(telefonoJid);
