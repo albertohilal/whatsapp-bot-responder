@@ -58,6 +58,7 @@ function start(client) {
 
 
     // --- Registrar SIEMPRE el entrante (aunque no respondamos) ----------------
+    console.log('Llamando a guardarMensaje:', { telefonoCanon, texto });
     try {
       await guardarMensaje(telefonoCanon, 'user', texto);
     } catch (e) {
