@@ -6,8 +6,11 @@ const { normalizarTelefonoWhatsApp } = require('../utils/normalizar');
 
 async function guardarMensaje(telefonoInput, rol, mensaje) {
   const telefono = normalizarTelefonoWhatsApp(telefonoInput);
-  if (!telefono || !rol || typeof mensaje !== 'string') {
-    throw new Error(`Parámetros inválidos en guardarMensaje: ${JSON.stringify({ telefono, rol, mensaje })}`);
+  console.log('📝 guardarMensaje params:', { telefonoInput, telefono, rol, mensaje });
+  // Solo validamos que haya teléfono y mensaje no vacío
+  if (!telefono || !mensaje) {
+    console.error('⚠️ Parámetros inválidos en guardarMensaje:', { telefono, rol, mensaje });
+    return;
   }
 
   const sql = `
@@ -18,9 +21,9 @@ async function guardarMensaje(telefonoInput, rol, mensaje) {
 
   try {
     await pool.execute(sql, params);
+    console.log('✅ Mensaje guardado en DB:', params);
   } catch (err) {
-    console.error('❌ Error guardando mensaje:', err.message, '| params:', params);
-    throw err;
+    console.error('❌ Error guardando mensaje en DB:', err, '| params:', params);
   }
 }
 
