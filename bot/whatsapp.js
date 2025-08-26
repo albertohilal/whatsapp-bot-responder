@@ -31,50 +31,60 @@ function iniciarBot() {
 function start(client) {
   console.log('🤖 Bot conectado a WhatsApp. Escuchando mensajes…');
   console.log(
-    `ENV ⇒ HOST_ENV=${process.env.HOST_ENV || 'server'} | RESPONDER_ACTIVO=${
-      process.env.RESPONDER_ACTIVO ?? '(undef)'
-    }`
+    `ENV ⇒ HOST_ENV=${process.env.HOST_ENV || 'server'} | SESSION_NAME=${process.env.SESSION_NAME || 'whatsapp-bot-responder'} | RESPONDER_ACTIVO=${process.env.RESPONDER_ACTIVO ?? '(undef)'}`
   );
 
   client.onMessage(async (message) => {
+    // --- Normalización y saneo ------------------------------------------------
     const telefonoJid = message.from; // ej: 54911xxxxxxxx@c.us
     const telefonoCanon = normalizarTelefonoWhatsApp(telefonoJid);
     const texto = (message.body || '').trim();
 
-    // 1) Filtro anti-duplicados por último texto de ese contacto
+    if (!telefonoCanon) {
+      console.warn('⚠️ No se pudo normalizar teléfono:', telefonoJid);
+      return;
+    }
+    if (!texto) {
+      // ignorar mensajes vacíos/sin texto
+      return;
+    }
+
+    // --- Anti-duplicados por último texto del contacto ------------------------
     if (mensajesIguales(ultimoMensaje[telefonoCanon], texto)) {
       console.log('🔁 Mensaje repetido ignorado');
       return;
     }
     ultimoMensaje[telefonoCanon] = texto;
 
-    // 2) Registrar SIEMPRE el entrante (aunque no vayamos a responder)
+
+    // --- Registrar SIEMPRE el entrante (aunque no respondamos) ----------------
     try {
       await guardarMensaje(telefonoCanon, 'user', texto);
     } catch (e) {
-      console.error('⚠️ Error guardando entrante:', e.message);
-      // seguimos el flujo igual
+      console.error('⚠️ Error guardando en DB:', e);
+      // No cortamos el flujo.
     }
 
-    // 3) Control de bandera RESPONDER_ACTIVO
+    // --- Feature flag para responder o no -------------------------------------
     const responderActivo =
       String(process.env.RESPONDER_ACTIVO || '').toLowerCase() !== 'false' &&
       process.env.RESPONDER_ACTIVO !== '0';
 
+
     if (!responderActivo) {
-      console.log('🤐 RESPONDER_ACTIVO=false → no se responde');
-      return;
+      console.log('🤫 RESPONDER_ACTIVO=false → no se responde');
+      return; // ya registramos; salimos sin generar respuesta
     }
 
-    // 4) Historial (no crítico)
+    // --- Cargar historial (no crítico) ----------------------------------------
     let historial = [];
     try {
       historial = await obtenerHistorial(telefonoCanon, 6);
     } catch {
-      /* noop */
+      /* noop: si falla, seguimos sin historial */
     }
 
-    // 5) Generar respuesta
+    // --- Generar análisis y respuesta -----------------------------------------
     let respuesta = '';
     try {
       const analisis = analizarMensaje(texto);
@@ -86,24 +96,24 @@ function start(client) {
         respuestas,
       });
     } catch (e) {
-      console.error('⚠️ Error generando respuesta:', e.message);
-      respuesta = 'Ups, tuve un inconveniente generando la respuesta.';
+      console.error('❌ Error generando respuesta:', e.message);
+      respuesta = '';
     }
 
-    // 6) Enviar y registrar la salida
-    try {
-      if (respuesta && respuesta.trim()) {
+    // --- Enviar y registrar salida si hay respuesta ---------------------------
+    if (respuesta && respuesta.trim()) {
+      try {
         await client.sendText(telefonoJid, respuesta);
+      } catch (e) {
+        console.error('⚠️ Error enviando respuesta a WhatsApp:', e.message);
       }
-      await guardarMensaje(telefonoCanon, 'assistant', respuesta);
-    } catch (e) {
-      console.error('⚠️ Error enviando/registrando respuesta:', e.message);
+      try {
+        await guardarMensaje(telefonoCanon, 'assistant', respuesta);
+      } catch (e) {
+        console.error('⚠️ Error guardando respuesta:', e.message);
+      }
     }
   });
 }
 
 module.exports = { iniciarBot };
-
-if (require.main === module) {
-  iniciarBot();
-}
