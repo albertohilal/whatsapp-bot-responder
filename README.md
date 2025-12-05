@@ -52,11 +52,13 @@ SESSION_NAME=whatsapp-bot-responder
 # Comportamiento del bot
 RESPONDER_ACTIVO=false   # false: no responde; true: responde automáticamente
 HOST_ENV=server          # "server" en Contabo, "local" en tu PC
+ADMIN_NUMBERS=5491112345678,5491187654321  # (opcional) admins que pueden activar/desactivar por WhatsApp
 ```
 
 > **Notas**
 > - `RESPONDER_ACTIVO=false` deja el listener activo y guardando mensajes sin responder.
 > - `HOST_ENV=server` aplica `headless`, `--no-sandbox`, etc. en venom. En local usar `HOST_ENV=local`.
+> - `ADMIN_NUMBERS` se usa para habilitar comandos como `"activar respuestas"`, `"desactivar respuestas"` o `"estado respuestas"` enviados desde WhatsApp.
 
 ---
 
@@ -120,6 +122,16 @@ Cuando `RESPONDER_ACTIVO=false`, el flujo **guarda** y **no responde**; ver logs
 ```
 🙂 RESPONDER_ACTIVO=false → no se responde
 ```
+
+### 4) Comandos para admins (opcional)
+
+Si defines `ADMIN_NUMBERS`, cualquier número de esa lista puede enviar los comandos:
+
+- `activar respuestas`, `responder on`, `activar bot` → vuelve a habilitar las respuestas automáticas.
+- `desactivar respuestas`, `responder off`, `pausar respuestas`, `silenciar bot` → deja el bot solo escuchando.
+- `estado respuestas` → reporta el estado actual.
+
+Cada comando responde con una confirmación para que se vea en el chat y queda registrado en la base.
 
 ---
 
