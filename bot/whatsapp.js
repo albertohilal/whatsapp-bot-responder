@@ -57,13 +57,12 @@ function start(client) {
     }
     ultimoMensaje[telefonoCanon] = texto;
 
-
     // --- Registrar SIEMPRE el entrante (aunque no respondamos) ----------------
     console.log('Llamando a guardarMensaje:', { telefonoCanon, texto });
     try {
       await guardarMensaje(telefonoCanon, 'user', texto);
     } catch (e) {
-      console.error('⚠️ Error guardando en DB:', e);
+      console.error('⚠️ Error guardando entrante:', e.message);
       // No cortamos el flujo.
     }
 
@@ -71,7 +70,6 @@ function start(client) {
     const responderActivo =
       String(process.env.RESPONDER_ACTIVO || '').toLowerCase() !== 'false' &&
       process.env.RESPONDER_ACTIVO !== '0';
-
 
     if (!responderActivo) {
       console.log('🤫 RESPONDER_ACTIVO=false → no se responde');
@@ -119,3 +117,7 @@ function start(client) {
 }
 
 module.exports = { iniciarBot };
+
+if (require.main === module) {
+  iniciarBot();
+}
