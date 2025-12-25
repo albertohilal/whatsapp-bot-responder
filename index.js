@@ -34,11 +34,23 @@ app.get('/api/status', async (req, res) => {
   });
 });
 
+// Endpoint para obtener todas las conversaciones
+app.get('/api/conversaciones', async (req, res) => {
+  try {
+    const { obtenerTodasLasConversaciones } = require('./db/conversaciones');
+    const conversaciones = await obtenerTodasLasConversaciones();
+    res.json(conversaciones);
+  } catch (error) {
+    console.error('❌ Error obteniendo conversaciones:', error);
+    res.status(500).json({ error: 'Error obteniendo conversaciones' });
+  }
+});
+
 // Endpoint para recibir mensajes del massive-sender
 app.post('/api/message-received', async (req, res) => {
-  const { from, body, timestamp, type, id } = req.body;
+  const { from, body, timestamp, type, id, cliente_id } = req.body;
   
-  console.log(`📨 Mensaje recibido de ${from}: ${body}`);
+  console.log(`📨 Mensaje recibido de ${from}: ${body} (cliente_id: ${cliente_id || 'default'})`);
   
   // Responder inmediatamente al webhook
   res.json({ success: true, received: true });
@@ -52,23 +64,26 @@ app.post('/api/message-received', async (req, res) => {
       return;
     }
     
-    // Guardar mensaje entrante
-    await guardarMensaje(telefonoCanon, texto, 'usuario');
+    // Usar cliente_id del webhook o fallback al .env
+    const clienteIdFinal = cliente_id || process.env.CLIENTE_ID || 51;
     
-    // Obtener historial
-    const historial = await obtenerHistorial(telefonoCanon, 10);
+    // Guardar mensaje entrante con cliente_id
+    await guardarMensaje(telefonoCanon, texto, 'usuario', clienteIdFinal);
+    
+    // Obtener historial del cliente específico
+    const historial = await obtenerHistorial(telefonoCanon, 10, clienteIdFinal);
     
     // Generar respuesta con IA
     const respuestaIA = await generarRespuesta(texto, historial);
     
     if (respuestaIA) {
-      // Guardar respuesta del bot
-      await guardarMensaje(telefonoCanon, respuestaIA, 'bot');
+      // Guardar respuesta del bot con cliente_id
+      await guardarMensaje(telefonoCanon, respuestaIA, 'bot', clienteIdFinal);
       
       // Enviar respuesta
       await whatsappClient.sendMessage(from, respuestaIA);
       
-      console.log(`✅ Respuesta enviada a ${telefonoCanon}`);
+      console.log(`✅ Respuesta enviada a ${telefonoCanon} (cliente: ${clienteIdFinal})`);
     }
   } catch (error) {
     console.error('❌ Error procesando mensaje:', error);
