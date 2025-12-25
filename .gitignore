@@ -1,4 +1,4 @@
-# Ignorar carpeta auxiliar
+git add# Ignorar carpeta auxiliar
 AUXILIAR/
 # Node.js
 node_modules/
