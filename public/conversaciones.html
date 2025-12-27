@@ -314,7 +314,7 @@
                                 ${messages.slice(-5).map(msg => `
                                     <div class="message ${msg.rol}">
                                         <div class="message-role">${msg.rol === 'usuario' ? '👤 Usuario' : '🤖 Bot'}</div>
-                                        <div>${msg.mensaje}</div>
+                                        <div class="message-text" style="font-size:1.1em;font-weight:500;color:#fff;word-break:break-word;">${msg.mensaje}</div>
                                     </div>
                                 `).join('')}
                                 ${messages.length > 5 ? `<div style="text-align: center; opacity: 0.5; margin-top: 10px; font-size: 0.85rem;">... ${messages.length - 5} mensajes anteriores</div>` : ''}

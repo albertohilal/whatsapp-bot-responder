@@ -68,7 +68,26 @@ app.post('/api/message-received', async (req, res) => {
     const clienteIdFinal = cliente_id || process.env.CLIENTE_ID || 51;
     
     // Guardar mensaje entrante con cliente_id
-    await guardarMensaje(telefonoCanon, texto, 'usuario', clienteIdFinal);
+    await guardarMensaje(telefonoCanon, 'usuario', texto, clienteIdFinal);
+    
+    console.log(`✅ Mensaje registrado de ${telefonoCanon} (cliente: ${clienteIdFinal})`);
+    
+    // Consultar configuración del bot para este cliente
+    const pool = require('./db/pool');
+    const [configRows] = await pool.execute(
+      'SELECT bot_activo FROM ll_bot_config WHERE cliente_id = ?',
+      [clienteIdFinal]
+    );
+    
+    const botActivo = configRows.length > 0 ? configRows[0].bot_activo : 0;
+    
+    if (botActivo === 0) {
+      console.log(`🔇 Bot en MODO SOLO ESCUCHA para cliente ${clienteIdFinal} - No se envía respuesta`);
+      return;
+    }
+    
+    // Bot activo - Generar y enviar respuesta
+    console.log(`🤖 Bot ACTIVO para cliente ${clienteIdFinal} - Generando respuesta...`);
     
     // Obtener historial del cliente específico
     const historial = await obtenerHistorial(telefonoCanon, 10, clienteIdFinal);
@@ -78,7 +97,7 @@ app.post('/api/message-received', async (req, res) => {
     
     if (respuestaIA) {
       // Guardar respuesta del bot con cliente_id
-      await guardarMensaje(telefonoCanon, respuestaIA, 'bot', clienteIdFinal);
+      await guardarMensaje(telefonoCanon, 'bot', respuestaIA, clienteIdFinal);
       
       // Enviar respuesta
       await whatsappClient.sendMessage(from, respuestaIA);
